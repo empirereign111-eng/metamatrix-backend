@@ -23,8 +23,8 @@ export const useApiKeys = (provider: Provider) => {
         
         // Remove default keys that were previously hardcoded
         const defaultGeminiKeys = [
-          "AIzaSyChOVVQpbq_ZNru3KhQUO6kGeNYWRryueY",
-          "AIzaSyBzsY9aS8yRUdcJp3cNIzGgEvpJZT35vNk"
+          "GEMINI_API_KEY_HERE",
+          "GEMINI_API_KEY_HERE"
         ];
         
         if (merged.gemini) {
