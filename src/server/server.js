@@ -44,60 +44,76 @@ const transporter = nodemailer.createTransport({
 ========================= */
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// 👉 Daily Usage Reset Logic (Strict Control)
+// 👉 professional HTML Email Template
+const sendOTPEmail = async (email, otp, name) => {
+    const mailOptions = {
+        from: `"MetaMatrix Support" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'Verify Your Email - MetaMatrix',
+        html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px;">
+            <div style="text-align: center; border-bottom: 2px solid #8B5CF6; padding-bottom: 20px;">
+                <h1 style="color: #8B5CF6; margin: 0;">MetaMatrix</h1>
+            </div>
+            <div style="padding: 20px 0;">
+                <p style="font-size: 16px; color: #333;">Hello <strong>${name || 'User'}</strong>,</p>
+                <p style="font-size: 16px; color: #333;">Thank you for joining MetaMatrix. To complete your registration, please use the following verification code:</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1A0B2E; background: #f3f4f6; padding: 10px 20px; border-radius: 5px; border: 1px dashed #8B5CF6;">${otp}</span>
+                </div>
+                <p style="font-size: 14px; color: #666;">This code is valid for <strong>5 minutes</strong>. If you didn't request this code, please ignore this email.</p>
+            </div>
+            <div style="text-align: center; border-top: 1px solid #e0e0e0; padding-top: 20px; color: #999; font-size: 12px;">
+                <p>&copy; 2026 MetaMatrix Systems. All rights reserved.</p>
+            </div>
+        </div>
+        `
+    };
+    return transporter.sendMail(mailOptions);
+};
+
+// Daily Usage Reset Logic
 const checkAndResetUsage = async (user) => {
   const now = new Date();
   const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : new Date(0);
-
-  // যদি আজকের দিনটি শেষ রিসেট দিনের থেকে আলাদা হয়
   if (now.toDateString() !== lastReset.toDateString()) {
-    user.usageCount = 0; // বর্তমান দিনের ব্যবহার ০ করে দাও
-    user.lastResetDate = now; // রিসেট ডেট আজ করে দাও
+    user.usageCount = 0;
+    user.lastResetDate = now;
     await user.save();
     return true;
   }
   return false;
 };
 
-// JWT Verification Middleware
+// Middleware
 const authenticateUser = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    
-    // প্রতি রিকোয়েস্টে ডেইলি রিসেট চেক করা হবে
     await checkAndResetUsage(user);
-    
     req.user = user;
-    req.role = decoded.role;
     next();
-  } catch (err) {
-    res.status(403).json({ error: 'Invalid token' });
-  }
+  } catch (err) { res.status(403).json({ error: 'Invalid token' }); }
 };
 
 const authenticateAdmin = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.role !== 'admin') throw new Error();
     next();
-  } catch (err) {
-    res.status(403).json({ error: 'Admin access required' });
-  }
+  } catch (err) { res.status(403).json({ error: 'Admin access required' }); }
 };
 
 /* =========================
-   USER ROUTES
+   AUTH ROUTES
 ========================= */
 
-// Registration & OTP Routes (Same as before)
+// Registration
 app.post('/api/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -113,24 +129,55 @@ app.post('/api/register', async (req, res) => {
     user = await User.create({
       name, email, password: hashed, isVerified: false, isApproved: false,
       otp, otpExpiry: Date.now() + 5 * 60 * 1000,
-      usageCount: 0, maxLimit: 10, planName: 'Free Plan' // Default settings
+      usageCount: 0, maxLimit: 10, planName: 'Free Plan'
     });
 
-    await transporter.sendMail({
-      from: `"MetaMatrix" <${process.env.EMAIL_USER}>`,
-      to: email, subject: 'Verify OTP', text: `Your OTP: ${otp}`,
-    });
-
+    await sendOTPEmail(email, otp, name); // Professional Email
     res.json({ message: 'OTP sent' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// User Login (Login হলেই রিসেট হবে)
+// Resend OTP
+app.post('/api/resend-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = Date.now() + 5 * 60 * 1000;
+    await user.save();
+
+    await sendOTPEmail(email, otp, user.name);
+    res.json({ message: 'New OTP sent to your email' });
+  } catch (err) { res.status(500).json({ error: 'Failed to resend OTP' }); }
+});
+
+// Verify OTP (Alias supported)
+const verifyLogic = async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        const user = await User.findOne({ email, otp });
+        if (!user) return res.status(400).json({ error: 'Invalid verification code' });
+        if (user.otpExpiry < Date.now()) return res.status(400).json({ error: 'Code expired' });
+        
+        user.isVerified = true;
+        user.otp = undefined;
+        user.otpExpiry = undefined;
+        await user.save();
+        res.json({ message: 'Email verified successfully! Please wait for Admin approval.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+app.post('/api/verify-otp', verifyLogic);
+app.post('/api/verify-email', verifyLogic); // Alias to prevent frontend 404
+
+// Login
 app.post('/api/login/user', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
-
     if (!user) return res.status(401).json({ error: 'Invalid Credentials' });
     if (!user.isVerified) return res.status(403).json({ error: 'Verify first' });
     if (!user.isApproved) return res.json({ status: 'pending', message: 'Waiting for Admin approval' });
@@ -138,122 +185,45 @@ app.post('/api/login/user', async (req, res) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ error: 'Invalid Credentials' });
 
-    // চেক এবং রিসেট ডেইলি লিমিট
     await checkAndResetUsage(user);
 
     const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, role: 'user', user: { 
-      name: user.name, 
-      email: user.email,
-      usageCount: user.usageCount,
-      maxLimit: user.maxLimit,
-      planName: user.planName,
-      accessEnd: user.accessEnd
-    }});
+    res.json({ token, role: 'user', user: { name: user.name, email: user.email, usageCount: user.usageCount, maxLimit: user.maxLimit, planName: user.planName, accessEnd: user.accessEnd }});
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 👉 Usage Increment API (Strict Limit Enforcement)
+// Admin Panel & Other Routes
 app.post('/api/usage/increment', authenticateUser, async (req, res) => {
-  try {
-    const user = req.user;
-
-    // ১. চেক করো লিমিট শেষ কি না (এডমিন যেটা সেট করেছে)
-    if (user.maxLimit !== -1 && user.usageCount >= user.maxLimit) {
-      return res.status(403).json({ error: 'Limit Over', message: 'Admin defined limit reached.' });
-    }
-
-    // ২. লিমিট থাকলে কাউন্ট বাড়াও
-    user.usageCount += 1;
-    user.usageTotal = (user.usageTotal || 0) + 1;
-    await user.save();
-
-    res.json({ success: true, currentUsage: user.usageCount });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        const user = req.user;
+        if (user.maxLimit !== -1 && user.usageCount >= user.maxLimit) return res.status(403).json({ error: 'Limit Over' });
+        user.usageCount += 1;
+        user.usageTotal = (user.usageTotal || 0) + 1;
+        await user.save();
+        res.json({ success: true, currentUsage: user.usageCount });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// User Refresh Data (Frontend calls this)
-app.get('/api/me', authenticateUser, (req, res) => {
-  res.json({ user: req.user });
-});
-
-/* =========================
-   ADMIN LOGIN (Same as before)
-========================= */
-app.post('/api/login/admin', async (req, res) => {
-  try {
-    const { email, password, pin } = req.body;
-    if (email !== process.env.ADMIN_EMAIL) return res.status(401).json({ error: 'Invalid Admin' });
-
-    const isPassValid = process.env.ADMIN_PASS.startsWith('$2b$') ? await bcrypt.compare(password, process.env.ADMIN_PASS) : (password === process.env.ADMIN_PASS);
-    const isPinValid = process.env.ADMIN_PIN.startsWith('$2b$') ? await bcrypt.compare(pin, process.env.ADMIN_PIN) : (pin === process.env.ADMIN_PIN);
-
-    if (isPassValid && isPinValid) {
-      const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
-      return res.json({ token, role: 'admin', user: { name: 'Admin', email } });
-    }
-    res.status(401).json({ error: 'Invalid Admin Credentials' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-/* =========================
-   ADMIN PANEL ROUTES
-========================= */
 
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
-  try {
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
-    res.json(users);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/admin/users/:id/approve', authenticateAdmin, async (req, res) => {
-  try {
-    const { plan, accessStart, accessEnd, maxLimit, limitType } = req.body;
-    await User.findByIdAndUpdate(req.params.id, {
-      isApproved: true,
-      status: 'active',
-      planName: plan,
-      accessStart,
-      accessEnd,
-      maxLimit,
-      limitType,
-      usageCount: 0 // Approve করার সময় রিসেট করে দাও
-    });
-    res.json({ message: 'User approved/updated' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/admin/users/:id/block', authenticateAdmin, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    user.status = user.status === 'blocked' ? 'active' : 'blocked';
-    await user.save();
-    res.json({ message: `User ${user.status}` });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        const { plan, accessStart, accessEnd, maxLimit, limitType } = req.body;
+        await User.findByIdAndUpdate(req.params.id, { isApproved: true, status: 'active', planName: plan, accessStart, accessEnd, maxLimit, limitType, usageCount: 0 });
+        res.json({ message: 'User approved' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/admin/users/:id/delete', authenticateAdmin, async (req, res) => {
-  try {
-    await User.findByIdAndDelete(req.params.id);
-    res.json({ message: 'User deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-/* =========================
-   OTP & VERIFICATION
-========================= */
-app.post('/api/verify-otp', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    const user = await User.findOne({ email, otp });
-    if (!user || user.otpExpiry < Date.now()) return res.status(400).json({ error: 'Invalid or expired OTP' });
-    
-    user.isVerified = true;
-    user.otp = undefined;
-    await user.save();
-    res.json({ message: 'Email verified' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ message: 'User deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 const PORT = process.env.PORT || 5000;
