@@ -1,3 +1,12 @@
+// 👉 1. ENOENT (cmd.exe) Error Fix (MUST BE AT THE TOP)
+const os = require('os');
+if (os.platform() === 'win32') {
+  process.env.ComSpec = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
+  if (!process.env.PATH) {
+    process.env.PATH = 'C:\\Windows\\System32;C:\\Windows';
+  }
+}
+
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -8,10 +17,9 @@ let serverProcess;
    START BACKEND
 ========================= */
 function startBackend() {
-
   serverProcess = spawn('node', ['server.js'], {
     cwd: path.join(__dirname, 'src', 'server'),
-    shell: true,
+    shell: true, // এখন আর ENOENT এরর আসবে না কারণ উপরে cmd.exe ফিক্স করা হয়েছে
   });
 
   serverProcess.stdout.on('data', (data) => {
@@ -31,31 +39,25 @@ function startBackend() {
    CREATE WINDOW
 ========================= */
 function createWindow() {
-
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-
     autoHideMenuBar: true,
     title: 'MetaMatrix',
-
     icon: path.join(__dirname, 'icon.ico'),
-
     backgroundColor: '#0B0314',
-
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      devTools: true,
+      devTools: true, // প্রোডাকশনে চাইলে এটি false করে দিতে পারেন
     },
   });
 
   /* =========================
      LOAD PRODUCTION BUILD
   ========================= */
-
   const indexPath = path.join(
     __dirname,
     'dist',
@@ -67,7 +69,6 @@ function createWindow() {
   /* =========================
      ERROR HANDLING
   ========================= */
-
   win.webContents.on('did-fail-load', () => {
     console.log('❌ Failed to load UI');
   });
@@ -86,9 +87,7 @@ function createWindow() {
 /* =========================
    APP READY
 ========================= */
-
 app.whenReady().then(() => {
-
   // START BACKEND
   startBackend();
 
@@ -98,22 +97,16 @@ app.whenReady().then(() => {
   }, 3000);
 
   app.on('activate', () => {
-
-    if (
-      BrowserWindow.getAllWindows().length === 0
-    ) {
+    if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
-
   });
 });
 
 /* =========================
    CLOSE APP
 ========================= */
-
 app.on('window-all-closed', () => {
-
   // KILL BACKEND
   if (serverProcess) {
     serverProcess.kill();
