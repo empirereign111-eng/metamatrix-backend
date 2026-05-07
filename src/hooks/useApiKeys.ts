@@ -8,7 +8,10 @@ const DEFAULT_KEYS: Record<Provider, ApiKey[]> = {
   mixtral: []
 };
 
-const generateId = () => typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+const generateId = () => 
+  typeof crypto !== 'undefined' && crypto.randomUUID 
+    ? crypto.randomUUID() 
+    : Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 
 export const useApiKeys = (provider: Provider) => {
   const { apiKeys, setApiKeys } = useStore();
@@ -21,34 +24,16 @@ export const useApiKeys = (provider: Provider) => {
         const parsed = JSON.parse(saved);
         const merged = { ...DEFAULT_KEYS, ...parsed };
         
-        // Remove default keys that were previously hardcoded
-        const defaultGeminiKeys = [
-          "GEMINI_API_KEY_HERE",
-          "GEMINI_API_KEY_HERE"
-        ];
-        
-        if (merged.gemini) {
-          merged.gemini = merged.gemini.filter((k: ApiKey) => !defaultGeminiKeys.includes(k.key));
-        }
-        
-        if (merged.grok) {
-          merged.grok = merged.grok.filter((k: ApiKey) => 
-            k.id !== 'default-grok' && 
-            k.key !== 'Grok_API_KEY_Here' &&
-            !k.key.startsWith('sk_CIxg')
-          );
-        }
+        // হার্ডকোডেড কী ফিল্টারিং লজিক ক্লিন করা হয়েছে
+        // এখন এটি শুধুমাত্র ইউজার দ্বারা ইনপুট দেওয়া ভ্যালিড কীগুলোই লোড করবে
         
         // Ensure at least one key is active if there are keys left
-        if (merged.gemini && merged.gemini.length > 0 && !merged.gemini.some((k: ApiKey) => k.isActive)) {
-          merged.gemini[0].isActive = true;
-        }
-        if (merged.grok && merged.grok.length > 0 && !merged.grok.some((k: ApiKey) => k.isActive)) {
-          merged.grok[0].isActive = true;
-        }
-        if (merged.mixtral && merged.mixtral.length > 0 && !merged.mixtral.some((k: ApiKey) => k.isActive)) {
-          merged.mixtral[0].isActive = true;
-        }
+        const providers: Provider[] = ['gemini', 'grok', 'mixtral'];
+        providers.forEach(p => {
+          if (merged[p] && merged[p].length > 0 && !merged[p].some((k: ApiKey) => k.isActive)) {
+            merged[p][0].isActive = true;
+          }
+        });
 
         setApiKeys(merged);
       } catch (e) {
