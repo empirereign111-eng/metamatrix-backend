@@ -1,5 +1,5 @@
 async function test() {
-  const apiKey = 'xai-8zO0fmQO33pXqlOCLjrfMk6iiQBXu0uzEy60nwFfx4F0ied5jdJmnoh9F9fNklgLlumotQSoW5dnft8T';
+  const apiKey = 'Grok_API_KEY_Here';
   const models = ['grok-4.20', 'grok-4.20-beta', 'grok-4.20-latest', 'grok-4.5'];
   
   for (const model of models) {
