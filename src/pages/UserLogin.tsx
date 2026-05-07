@@ -5,7 +5,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { TermsModal } from '../components/TermsModal';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
+// 👉 API URL matching the local port shown in your terminal
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const UserLogin = () => {
   const { login } = useAuth();
@@ -57,11 +58,14 @@ export const UserLogin = () => {
         ? `${API_URL}/api/login/user`
         : `${API_URL}/api/register`;
 
+      // 👉 Sanitizing email before sending
+      const cleanEmail = email.toLowerCase().trim();
+
       const body = isLogin 
-        ? { email, password, deviceId: getDeviceId() } 
+        ? { email: cleanEmail, password, deviceId: getDeviceId() } 
         : { 
-            name, 
-            email, 
+            name: name.trim(), 
+            email: cleanEmail, 
             password, 
             agreedToTerms, 
             agreedAt: new Date().toISOString() 
@@ -90,11 +94,6 @@ export const UserLogin = () => {
         throw new Error(data.error || data.message || 'Authentication failed');
       }
       
-      if (data.success === false) {
-        setError(data.message || 'Authentication failed');
-        return;
-      }
-      
       if (data.token) {
         login(data.token, data.role || 'user', data.user);
         navigate('/workspace');
@@ -111,6 +110,7 @@ export const UserLogin = () => {
     }
   };
 
+  // 👉 FIXED: Verification function to match backend variable and endpoint
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -118,10 +118,13 @@ export const UserLogin = () => {
     setLoading(true);
     
     try {
-      const res = await fetch(`${API_URL}/api/verify-email`, {
+      const res = await fetch(`${API_URL}/api/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: verificationCode })
+        body: JSON.stringify({ 
+          email: email.toLowerCase().trim(), 
+          otp: verificationCode.toString().trim() // Sending as 'otp' to match backend
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Verification failed');
@@ -137,15 +140,16 @@ export const UserLogin = () => {
     }
   };
 
+  // 👉 FIXED: Resend function to match the backend route added in server.js
   const handleResendCode = async () => {
     setError('');
     setSuccessMsg('');
     setResendLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/resend-verification`, {
+      const res = await fetch(`${API_URL}/api/resend-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: email.toLowerCase().trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to resend');
@@ -166,7 +170,7 @@ export const UserLogin = () => {
       const res = await fetch(`${API_URL}/api/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: email.toLowerCase().trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send reset code');
@@ -194,7 +198,7 @@ export const UserLogin = () => {
       const res = await fetch(`${API_URL}/api/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: resetCode, newPassword })
+        body: JSON.stringify({ email: email.toLowerCase().trim(), code: resetCode, newPassword })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Reset failed');

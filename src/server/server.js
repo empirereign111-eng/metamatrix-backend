@@ -40,36 +40,28 @@ const transporter = nodemailer.createTransport({
 });
 
 /* =========================
-   PROFESSIONAL EMAIL TEMPLATE
+   PROFESSIONAL EMAIL TEMPLATE (Verified Name Fix)
 ========================= */
 const sendOTPEmail = async (email, otp, name) => {
     const mailOptions = {
-        // 👉 Professional Header (Hides raw email in display name)
-        from: '"MetaMatrix Security"', 
+        // 👉 FIX: Display Name format with brackets ensures Gmail shows MetaMatrix Support
+        from: `"MetaMatrix Support" <${process.env.EMAIL_USER}>`, 
         to: email,
-        subject: `${otp} is your MetaMatrix verification code`,
+        subject: `${otp} is your verification code`,
         html: `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 500px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; padding: 0; overflow: hidden; background-color: #ffffff;">
-            <div style="background-color: #1A0B2E; padding: 30px 20px; text-align: center;">
-                <h1 style="color: #22D3EE; margin: 0; font-size: 28px; letter-spacing: 2px;">MetaMatrix</h1>
+        <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+            <div style="background-color: #1A0B2E; padding: 30px; text-align: center;">
+                <h1 style="color: #22D3EE; margin: 0;">MetaMatrix</h1>
             </div>
             <div style="padding: 40px 30px; color: #333333;">
-                <h2 style="margin-top: 0; color: #1A0B2E; font-size: 20px;">Verify your email</h2>
-                <p style="font-size: 15px; line-height: 1.6;">Hi <strong>${name || 'there'}</strong>,</p>
-                <p style="font-size: 15px; line-height: 1.6;">To complete your registration and secure your account, please use the following 6-digit verification code:</p>
-                
+                <p>Hi <strong>${name || 'there'}</strong>,</p>
+                <p>To secure your account, please use this 6-digit verification code:</p>
                 <div style="text-align: center; margin: 35px 0;">
                     <div style="display: inline-block; padding: 15px 30px; background-color: #F3F4F6; border: 2px dashed #8B5CF6; border-radius: 8px;">
-                        <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1A0B2E;">${otp}</span>
+                        <span style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1A0B2E;">${otp}</span>
                     </div>
                 </div>
-                
-                <p style="font-size: 14px; color: #666666;">This code will expire in <strong>5 minutes</strong>. If you did not request this, you can safely ignore this email.</p>
-                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;">
-                <p style="font-size: 13px; color: #999999; text-align: center;">This is an automated security message. Please do not reply.</p>
-            </div>
-            <div style="background-color: #f9fafb; padding: 20px; text-align: center; color: #9ca3af; font-size: 12px;">
-                © 2026 MetaMatrix Systems. All rights reserved.
+                <p style="font-size: 14px; color: #666666;">This code is valid for 5 minutes.</p>
             </div>
         </div>
         `
@@ -78,7 +70,7 @@ const sendOTPEmail = async (email, otp, name) => {
 };
 
 /* =========================
-   CORE LOGIC & MIDDLEWARE
+   CORE LOGIC
 ========================= */
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -94,6 +86,7 @@ const checkAndResetUsage = async (user) => {
   return false;
 };
 
+// Middleware
 const authenticateUser = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -119,7 +112,7 @@ const authenticateAdmin = (req, res, next) => {
 };
 
 /* =========================
-   AUTH & VERIFICATION ROUTES
+   AUTH & VERIFICATION (FIXED)
 ========================= */
 
 // Registration
@@ -130,7 +123,6 @@ app.post('/api/register', async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
     let user = await User.findOne({ email: cleanEmail });
-    
     if (user && user.isVerified) return res.status(400).json({ error: 'Already registered' });
     if (user && !user.isVerified) await User.deleteOne({ email: cleanEmail });
 
@@ -148,117 +140,86 @@ app.post('/api/register', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Verification Logic (With Robust Sanitization)
+// Resend OTP Logic
+const resendLogic = async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
+      const user = await User.findOne({ email: email.toLowerCase().trim() });
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      const otp = generateOTP();
+      user.otp = otp;
+      user.otpExpiry = Date.now() + 5 * 60 * 1000;
+      await user.save();
+      await sendOTPEmail(user.email, otp, user.name);
+      res.json({ message: 'New code sent!' });
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+};
+app.post('/api/resend-otp', resendLogic);
+app.post('/api/auth/resend-otp', resendLogic);
+app.post('/api/verify-resend', resendLogic);
+
+// 👉 VERIFY LOGIC (Catch-All Protection)
 const verifyLogic = async (req, res) => {
     try {
-        const { email, otp } = req.body;
-        if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
+        // টার্মিনালে লগ করবে যাতে আপনি দেখতে পারেন ফ্রন্টএন্ড কী পাঠাচ্ছে
+        console.log("--- OTP Verification Request ---");
+        console.log("Body:", req.body);
 
-        const cleanEmail = email.toLowerCase().trim();
-        const cleanOtp = otp.toString().trim().replace(/\s/g, ''); 
-
-        const user = await User.findOne({ email: cleanEmail, otp: cleanOtp });
-
-        if (!user) {
-            return res.status(400).json({ error: 'Invalid verification code' });
+        const { email, otp, code, verificationCode } = req.body;
+        const targetOtp = (otp || code || verificationCode)?.toString().trim();
+        
+        if (!email || !targetOtp) {
+            return res.status(400).json({ error: 'Email and OTP are required' });
         }
 
-        if (user.otpExpiry < Date.now()) {
-            return res.status(400).json({ error: 'Code has expired. Please resend.' });
-        }
+        const user = await User.findOne({ 
+            email: email.toLowerCase().trim(), 
+            otp: targetOtp 
+        });
+
+        if (!user) return res.status(400).json({ error: 'Invalid verification code' });
+        if (user.otpExpiry < Date.now()) return res.status(400).json({ error: 'Code expired' });
 
         user.isVerified = true;
         user.otp = undefined;
         user.otpExpiry = undefined;
         await user.save();
 
-        res.json({ message: 'Email verified successfully! Please wait for Admin approval.' });
-    } catch (err) { res.status(500).json({ error: 'Server error during verification' }); }
+        res.json({ message: 'Email verified! Please wait for Admin approval.' });
+    } catch (err) { res.status(500).json({ error: 'Server error' }); }
 };
 
-// 👉 Multiple Aliases to prevent 404/JSON Error
+// 👉 All Possible Routes to fix 404 Unexpected Token Error
 app.post('/api/verify-otp', verifyLogic);
 app.post('/api/verify-email', verifyLogic);
-
-// Resend OTP
-const resendLogic = async (req, res) => {
-    try {
-      const { email } = req.body;
-      if (!email) return res.status(400).json({ error: 'Email is required' });
-      
-      const cleanEmail = email.toLowerCase().trim();
-      const user = await User.findOne({ email: cleanEmail });
-      if (!user) return res.status(404).json({ error: 'User not found' });
-  
-      const otp = generateOTP();
-      user.otp = otp;
-      user.otpExpiry = Date.now() + 5 * 60 * 1000;
-      await user.save();
-  
-      await sendOTPEmail(cleanEmail, otp, user.name);
-      res.json({ message: 'New OTP sent to your email' });
-    } catch (err) { res.status(500).json({ error: 'Failed to resend OTP' }); }
-};
-
-app.post('/api/resend-otp', resendLogic);
-app.post('/api/auth/resend-otp', resendLogic); // Alias
+app.post('/api/verify-code', verifyLogic);
+app.post('/api/auth/verify', verifyLogic);
 
 /* =========================
-   LOGIN & USAGE ROUTES
+   OTHER ROUTES
 ========================= */
 
-// User Login
 app.post('/api/login/user', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const cleanEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: cleanEmail });
-
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(401).json({ error: 'Invalid Credentials' });
     if (!user.isVerified) return res.status(403).json({ error: 'Verify first' });
     if (!user.isApproved) return res.json({ status: 'pending', message: 'Waiting for Admin approval' });
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ error: 'Invalid Credentials' });
-
-    await checkAndResetUsage(user);
-
-    const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, role: 'user', user: { 
-      name: user.name, 
-      email: user.email,
-      usageCount: user.usageCount,
-      maxLimit: user.maxLimit,
-      planName: user.planName,
-      accessEnd: user.accessEnd
-    }});
+    if (await bcrypt.compare(password, user.password)) {
+      await checkAndResetUsage(user);
+      const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, role: 'user', user: { name: user.name, email: user.email, usageCount: user.usageCount, maxLimit: user.maxLimit, planName: user.planName, accessEnd: user.accessEnd }});
+    }
+    res.status(401).json({ error: 'Invalid Credentials' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Admin Login (Smart Hash Check)
-app.post('/api/login/admin', async (req, res) => {
-    try {
-      const { email, password, pin } = req.body;
-      if (email !== process.env.ADMIN_EMAIL) return res.status(401).json({ error: 'Invalid Admin' });
-  
-      const isPassValid = process.env.ADMIN_PASS.startsWith('$2b$') ? await bcrypt.compare(password, process.env.ADMIN_PASS) : (password === process.env.ADMIN_PASS);
-      const isPinValid = process.env.ADMIN_PIN.startsWith('$2b$') ? await bcrypt.compare(pin, process.env.ADMIN_PIN) : (pin === process.env.ADMIN_PIN);
-  
-      if (isPassValid && isPinValid) {
-        const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
-        return res.json({ token, role: 'admin', user: { name: 'Admin', email } });
-      }
-      res.status(401).json({ error: 'Invalid Admin Credentials' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Usage Increment
 app.post('/api/usage/increment', authenticateUser, async (req, res) => {
   try {
     const user = req.user;
-    if (user.maxLimit !== -1 && user.usageCount >= user.maxLimit) {
-      return res.status(403).json({ error: 'Limit Over' });
-    }
+    if (user.maxLimit !== -1 && user.usageCount >= user.maxLimit) return res.status(403).json({ error: 'Limit Over' });
     user.usageCount += 1;
     user.usageTotal = (user.usageTotal || 0) + 1;
     await user.save();
@@ -266,10 +227,7 @@ app.post('/api/usage/increment', authenticateUser, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* =========================
-   ADMIN PANEL ROUTES
-========================= */
-
+// Admin Panel Routes
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
   try {
     const users = await User.find().select('-password').sort({ createdAt: -1 });
@@ -280,17 +238,8 @@ app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
 app.put('/api/admin/users/:id/approve', authenticateAdmin, async (req, res) => {
   try {
     const { plan, accessStart, accessEnd, maxLimit, limitType } = req.body;
-    await User.findByIdAndUpdate(req.params.id, {
-      isApproved: true,
-      status: 'active',
-      planName: plan,
-      accessStart,
-      accessEnd,
-      maxLimit,
-      limitType,
-      usageCount: 0 
-    });
-    res.json({ message: 'User approved/updated' });
+    await User.findByIdAndUpdate(req.params.id, { isApproved: true, status: 'active', planName: plan, accessStart, accessEnd, maxLimit, limitType, usageCount: 0 });
+    res.json({ message: 'User approved' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
