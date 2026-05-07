@@ -34,7 +34,7 @@ export const useApiKeys = (provider: Provider) => {
         if (merged.grok) {
           merged.grok = merged.grok.filter((k: ApiKey) => 
             k.id !== 'default-grok' && 
-            k.key !== 'xai-xHzJKjoVwoTPIUsTcvLKRjttJrt3N1w6KVZ05ZyaCMxEZHGLP4IOxmwjVM4cMr78buurBxvFVdEC7gnG' &&
+            k.key !== 'Grok_API_KEY_Here' &&
             !k.key.startsWith('sk_CIxg')
           );
         }
